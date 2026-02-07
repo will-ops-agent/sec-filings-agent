@@ -216,6 +216,98 @@ addEntrypoint({
   },
 });
 
+const companyProfileInput = z
+  .object({
+    ticker: z.string().min(1).optional(),
+    cik: z.union([z.string().min(1), z.number()]).optional(),
+  })
+  .refine(v => v.ticker || v.cik, { message: 'Provide either ticker or cik.' });
+
+addEntrypoint({
+  key: 'company.profile',
+  description:
+    'Company profile/metadata from SEC submissions (name, CIK, SIC, fiscal year end, state, addresses when available).',
+  input: companyProfileInput,
+  price: '0.01',
+  handler: async ctx => {
+    const input = ctx.input as z.infer<typeof companyProfileInput>;
+
+    const cik =
+      input.cik ?? (input.ticker ? await cikFromTicker(input.ticker) : undefined);
+    if (!cik) throw new Error('Unable to resolve CIK');
+
+    const s: any = await getSubmissions(cik);
+
+    return {
+      output: {
+        ticker: input.ticker?.toUpperCase(),
+        cik: s.cik,
+        name: s.name,
+        tickers: s.tickers,
+        sicDescription: s.sicDescription,
+        category: s.category,
+        entityType: s.entityType,
+        fiscalYearEnd: s.fiscalYearEnd,
+        stateOfIncorporation: s.stateOfIncorporation,
+        phone: s.phone,
+        addresses: s.addresses,
+        website: s.website,
+        formerNames: s.formerNames,
+      },
+    };
+  },
+});
+
+const insiderTradesInput = z
+  .object({
+    ticker: z.string().min(1).optional(),
+    cik: z.union([z.string().min(1), z.number()]).optional(),
+    limit: z.number().int().min(1).max(50).default(10),
+  })
+  .refine(v => v.ticker || v.cik, { message: 'Provide either ticker or cik.' });
+
+addEntrypoint({
+  key: 'filings.insider-trades',
+  description:
+    'Recent insider filing links (Forms 3/4/5) from SEC submissions.',
+  input: insiderTradesInput,
+  price: '0.01',
+  handler: async ctx => {
+    const input = ctx.input as z.infer<typeof insiderTradesInput>;
+
+    const cik =
+      input.cik ?? (input.ticker ? await cikFromTicker(input.ticker) : undefined);
+    if (!cik) throw new Error('Unable to resolve CIK');
+
+    const submissions = await getSubmissions(cik);
+    const recent = recentFilingsToItems(submissions.filings?.recent);
+
+    const trades = recent
+      .filter(f => ['3', '4', '5'].includes(f.form))
+      .slice(0, input.limit)
+      .map(f => ({
+        ...f,
+        primaryDocUrl:
+          f.primaryDocument && f.accessionNumber
+            ? buildPrimaryDocUrl({
+                cik: submissions.cik,
+                accessionNumber: f.accessionNumber,
+                primaryDocument: f.primaryDocument,
+              })
+            : undefined,
+      }));
+
+    return {
+      output: {
+        ticker: input.ticker?.toUpperCase(),
+        cik: submissions.cik,
+        name: submissions.name,
+        trades,
+      },
+    };
+  },
+});
+
 const filingsStreamInput = z
   .object({
     ticker: z.string().min(1).optional(),
