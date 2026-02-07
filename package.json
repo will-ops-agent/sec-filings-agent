@@ -1,0 +1,26 @@
+{
+  "name": "sec-filings-agent",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir=dist --target=bun",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lucid-agents/core": "latest",
+    "@lucid-agents/hono": "latest",
+    "@lucid-agents/http": "^1.10.0",
+    "@lucid-agents/identity": "latest",
+    "@lucid-agents/payments": "^2.4.1",
+    "@lucid-agents/wallet": "latest",
+    "viem": "^2.41.2",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.0",
+    "typescript": "^5.9.2"
+  }
+}
