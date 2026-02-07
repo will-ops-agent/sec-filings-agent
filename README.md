@@ -91,6 +91,35 @@ curl -N http://localhost:3000/entrypoints/filings.stream/stream \
 
 > Note: SEC requires a real `SEC_USER_AGENT` string (email/contact). Set it in env.
 
+### Production env (suggested defaults)
+
+Minimum for SEC fetches + x402 paywall:
+
+```bash
+# SEC compliance header (required)
+SEC_USER_AGENT="sec-filings-agent/0.1 (will.ops@agentmail.to)"
+
+# x402 paywall (required to actually enforce payment)
+PAYMENTS_RECEIVABLE_ADDRESS=0x64c2310BD1151266AA2Ad2410447E133b7F84e29
+
+# Network: pin Base mainnet explicitly in prod
+NETWORK=base
+CHAIN_ID=8453
+
+# Facilitator: leave unset to use Daydreams/Lucid default
+# FACILITATOR_URL=
+```
+
+Identity (ERC-8004) registration:
+
+```bash
+# Only enable when you want to register on-chain
+REGISTER_IDENTITY=false
+
+# If/when enabling identity, make sure RPC_URL points to Base mainnet
+# RPC_URL=https://...
+```
+
 ### ERC-8004 Registries
 
 Your agent has access to all three registries:
