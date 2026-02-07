@@ -118,8 +118,12 @@ Identity (ERC-8004) registration:
 # Only enable when you want to register on-chain
 REGISTER_IDENTITY=false
 
-# If/when enabling identity, make sure RPC_URL points to Base mainnet
+# If/when enabling identity, set an RPC_URL for the chain you want to register on
 # RPC_URL=https://...
+
+# Optional: override registry addresses (useful for chains not yet supported in libs)
+# IDENTITY_REGISTRY_ADDRESS=0x...
+# REPUTATION_REGISTRY_ADDRESS=0x...
 ```
 
 ### ERC-8004 Registries
