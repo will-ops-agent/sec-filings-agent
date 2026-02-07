@@ -7,7 +7,8 @@
     "dev": "bun run --watch src/index.ts",
     "start": "bun run src/index.ts",
     "build": "bun build src/index.ts --outdir=dist --target=bun",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "register": "bun run register-erc8004.ts"
   },
   "dependencies": {
     "@lucid-agents/core": "latest",
