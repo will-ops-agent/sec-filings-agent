@@ -48,6 +48,21 @@ const proxyFixFetch = async (request: Request): Promise<Response> => {
   });
   console.log(`[REQ] Headers: ${allHeaders.join(', ')}`);
   
+  // Debug: Log if payment-signature is present
+  const paymentSig = fixedRequest.headers.get('payment-signature');
+  if (paymentSig) {
+    try {
+      const decoded = JSON.parse(Buffer.from(paymentSig, 'base64').toString('utf-8'));
+      console.log(`[PAYMENT] Signature URL: ${decoded.resource?.url || 'unknown'}`);
+      console.log(`[PAYMENT] Expected URL: ${fixedRequest.url}`);
+      if (decoded.resource?.url !== fixedRequest.url) {
+        console.log(`[PAYMENT] ⚠️ URL MISMATCH!`);
+      }
+    } catch (e) {
+      console.log(`[PAYMENT] Could not decode signature`);
+    }
+  }
+  
   const response = await app.fetch(fixedRequest);
   
   console.log(`[RES] ${response.status} ${url.pathname}`);
@@ -55,6 +70,11 @@ const proxyFixFetch = async (request: Request): Promise<Response> => {
     const paymentRequired = response.headers.get('PAYMENT-REQUIRED');
     if (paymentRequired) {
       console.log(`[RES] Payment-Required header present`);
+      // Debug: show what URL is in the 402 response
+      try {
+        const decoded = JSON.parse(Buffer.from(paymentRequired, 'base64').toString('utf-8'));
+        console.log(`[RES] Payment-Required URL: ${decoded.resource?.url || 'unknown'}`);
+      } catch (e) {}
     }
   }
   
