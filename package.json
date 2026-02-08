@@ -12,11 +12,11 @@
     "verify-registry": "bun run verify-registry.ts"
   },
   "dependencies": {
-    "@lucid-agents/core": "2.2.2",
-    "@lucid-agents/hono": "0.7.20",
+    "@lucid-agents/core": "latest",
+    "@lucid-agents/hono": "latest",
     "@lucid-agents/http": "latest",
     "@lucid-agents/identity": "latest",
-    "@lucid-agents/payments": "2.2.2",
+    "@lucid-agents/payments": "latest",
     "@lucid-agents/wallet": "latest",
     "viem": "^2.41.2",
     "zod": "^4.1.12"
