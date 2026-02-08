@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { createAgentApp } from '@lucid-agents/hono';
 
 import { createAgent } from '@lucid-agents/core';
-import { createAxLLMClient } from '@lucid-agents/core/axllm';
+// summarize/LLM endpoints removed (no LLM client needed)
 import { http } from '@lucid-agents/http';
 import { payments, paymentsFromEnv } from '@lucid-agents/payments';
 import { wallets, walletsFromEnv } from '@lucid-agents/wallet';
@@ -41,7 +41,7 @@ const builder = createAgent({
   version: process.env.AGENT_VERSION ?? '0.1.0',
   description:
     process.env.AGENT_DESCRIPTION ??
-    'Fetch SEC EDGAR filings and generate LLM summaries, paywalled via x402.',
+    'Fetch SEC EDGAR filings from EDGAR, paywalled via x402.',
 })
   .use(http())
   .use(wallets({ config: walletsFromEnv() }))
@@ -483,120 +483,6 @@ addEntrypoint({
       output: { eventsSent: sent },
     };
   },
-});
-
-const summarizeInput = z.object({
-  ticker: z.string().min(1).optional(),
-  cik: z.union([z.string().min(1), z.number()]).optional(),
-  accessionNumber: z.string().min(5),
-  primaryDocument: z.string().min(1).optional(),
-  focus: z
-    .string()
-    .min(1)
-    .default('Key changes, risks, guidance, and anything material for investors.'),
-  maxChars: z.number().int().min(2000).max(200000).default(60000),
-});
-
-const summarizeHandler = async (ctx: any) => {
-  const input = ctx.input as z.infer<typeof summarizeInput>;
-
-  const cik =
-    input.cik ?? (input.ticker ? await cikFromTicker(input.ticker) : undefined);
-  if (!cik) throw new Error('Provide ticker or cik');
-
-  const submissions = await getSubmissions(cik);
-  const recent = recentFilingsToItems(submissions.filings?.recent);
-
-  const filing: FilingItem | undefined = recent.find(
-    f => f.accessionNumber === input.accessionNumber
-  );
-
-  const primaryDocument =
-    input.primaryDocument ?? filing?.primaryDocument ?? undefined;
-
-  if (!primaryDocument) {
-    throw new Error(
-      'primaryDocument not found. Provide primaryDocument or ensure accessionNumber is present in recent filings.'
-    );
-  }
-
-  const docUrl = buildPrimaryDocUrl({
-    cik: submissions.cik,
-    accessionNumber: input.accessionNumber,
-    primaryDocument,
-  });
-
-  const res = await fetch(docUrl, {
-    headers: {
-      'User-Agent':
-        process.env.SEC_USER_AGENT ??
-        'sec-filings-agent/0.1 (set SEC_USER_AGENT env var)',
-      Accept: 'text/html,text/plain,*/*',
-    },
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(
-      `Failed to fetch filing document: ${res.status} ${res.statusText}${text ? `: ${text.slice(0, 200)}` : ''}`
-    );
-  }
-
-  const raw = await res.text();
-  const clipped = raw.slice(0, input.maxChars);
-
-  const llm = createAxLLMClient({}).ax;
-  if (!llm) {
-    throw new Error(
-      'LLM not configured. Set OPENAI_API_KEY (and optionally AX_PROVIDER/AX_MODEL).'
-    );
-  }
-
-  const prompt = `You are a terse but high-signal analyst. Summarize the SEC filing below.\n\nFOCUS: ${input.focus}\n\nReturn:\n- Filing type + date (if inferable)\n- 8-15 bullet summary of material points\n- Risks/red flags\n- Any numbers/changes worth noting\n- 3 follow-up questions an investor should ask\n\nFILING (truncated):\n${clipped}`;
-
-  const anyLlm: any = llm as any;
-  const completion = anyLlm.chat
-    ? await anyLlm.chat({
-        messages: [
-          { role: 'system', content: 'You are a helpful assistant.' },
-          { role: 'user', content: prompt },
-        ],
-      })
-    : await anyLlm.generate?.({ prompt });
-
-  const text =
-    completion?.content ??
-    completion?.text ??
-    completion?.choices?.[0]?.message?.content ??
-    completion?.choices?.[0]?.text ??
-    String(completion);
-
-  return {
-    output: {
-      cik: submissions.cik,
-      name: submissions.name,
-      accessionNumber: input.accessionNumber,
-      primaryDocument,
-      docUrl,
-      summary: text,
-    },
-  };
-};
-
-addEntrypoint({
-  key: 'filings.summarize',
-  description: 'Fetch a filing primary document and return an LLM summary (paid).',
-  input: summarizeInput,
-  price: '0.03',
-  handler: summarizeHandler,
-});
-
-addEntrypoint({
-  key: 'filings.summary',
-  description: 'Alias of filings.summarize (paid).',
-  input: summarizeInput,
-  price: '0.03',
-  handler: summarizeHandler,
 });
 
 export { app };

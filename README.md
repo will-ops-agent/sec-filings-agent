@@ -63,7 +63,7 @@ Prices (defaults):
 - `company.profile` — $0.01
 - `filings.insider-trades` — $0.01
 - `filings.stream` — $0.01 (SSE)
-- `filings.summarize` / `filings.summary` — $0.03
+(summarize endpoints removed; no LLM key required)
 
 #### Examples
 
