@@ -15,6 +15,7 @@
     "@lucid-agents/core": "latest",
     "@lucid-agents/hono": "latest",
     "@lucid-agents/http": "^1.10.0",
+    "@lucid-agents/identity": "^2.4.1",
     "@lucid-agents/payments": "^2.4.1",
     "@lucid-agents/wallet": "latest",
     "viem": "^2.41.2",

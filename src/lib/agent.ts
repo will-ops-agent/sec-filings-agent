@@ -9,9 +9,12 @@ import { payments, paymentsFromEnv } from '@lucid-agents/payments';
 import { wallets, walletsFromEnv } from '@lucid-agents/wallet';
 
 import {
-  buildAgentRegistration,
-  registerErc8004IdentityOnBase,
-} from './erc8004';
+  createAgentIdentity,
+  generateAgentRegistration,
+  getTrustConfig,
+  identity,
+  identityFromEnv,
+} from '@lucid-agents/identity';
 
 import {
   cikFromTicker,
@@ -41,7 +44,19 @@ const builder = createAgent({
     'Fetch SEC EDGAR filings and generate LLM summaries, paywalled via x402.',
 })
   .use(http())
-  .use(wallets({ config: walletsFromEnv() }));
+  .use(wallets({ config: walletsFromEnv() }))
+  // Keep the identity extension so the agent manifest can expose trust metadata.
+  // NOTE: SDK currently has an address-map gap for Base mainnet (8453) when creating
+  // registry clients. We still use createAgentIdentity() with an explicit registryAddress
+  // so registration + trust config works, even if optional registry clients fail.
+  .use(
+    identity({
+      config: {
+        ...identityFromEnv(),
+        autoRegister: process.env.REGISTER_IDENTITY === 'true',
+      },
+    })
+  );
 
 // Payments are required for paid endpoints.
 // We allow boot without payments for local scaffolding (endpoints will still run, but not paywalled).
@@ -60,37 +75,15 @@ const { app, addEntrypoint } = await createAgentApp(agent);
 // ─────────────────────────────────────────────────────────────────────────────
 // ERC-8004 Identity (Base mainnet)
 //
-// NOTE: We do NOT rely on @lucid-agents/identity here because Base mainnet
-// support isn't reliable in the SDK yet. We register directly with viem.
+// We want identity + payments on Base mainnet. The SDK supports identity broadly,
+// but currently does not include Base mainnet (8453) in its internal address map.
+// Workaround: always pass registryAddress explicitly.
 //
 // Required hosting: /.well-known/agent-registration.json
 // ─────────────────────────────────────────────────────────────────────────────
 const domain = process.env.AGENT_DOMAIN;
 
-if (domain) {
-  const registration = buildAgentRegistration({
-    domain,
-    name: process.env.AGENT_NAME ?? 'sec-filings-agent',
-    description: process.env.AGENT_DESCRIPTION,
-    image: process.env.AGENT_IMAGE,
-    chainId: BASE_MAINNET_CHAIN_ID,
-    identityRegistryAddress:
-      process.env.IDENTITY_REGISTRY_ADDRESS ?? BASE_MAINNET_IDENTITY_REGISTRY,
-  });
-
-  app.get('/.well-known/agent-registration.json', c => c.json(registration));
-
-  // Optional: expose registries for debugging
-  app.get('/.well-known/erc8004.json', c =>
-    c.json({
-      chainId: BASE_MAINNET_CHAIN_ID,
-      identityRegistry:
-        process.env.IDENTITY_REGISTRY_ADDRESS ?? BASE_MAINNET_IDENTITY_REGISTRY,
-      reputationRegistry:
-        process.env.REPUTATION_REGISTRY_ADDRESS ?? BASE_MAINNET_REPUTATION_REGISTRY,
-    })
-  );
-}
+let identityResult: Awaited<ReturnType<typeof createAgentIdentity>> | null = null;
 
 if (process.env.REGISTER_IDENTITY === 'true') {
   if (!domain) throw new Error('REGISTER_IDENTITY=true requires AGENT_DOMAIN');
@@ -101,33 +94,83 @@ if (process.env.REGISTER_IDENTITY === 'true') {
     process.env.RPC_URL ??
     requireEnv('RPC_URL');
 
-  const privateKey = (process.env.IDENTITY_PRIVATE_KEY ??
-    process.env.PRIVATE_KEY ??
-    requireEnv('IDENTITY_PRIVATE_KEY')) as `0x${string}`;
+  const chainId =
+    process.env.CHAIN_ID ? parseInt(process.env.CHAIN_ID, 10) : BASE_MAINNET_CHAIN_ID;
 
-  const identityRegistryAddress = (process.env.IDENTITY_REGISTRY_ADDRESS ??
-    BASE_MAINNET_IDENTITY_REGISTRY) as `0x${string}`;
+  const identityRegistryAddress =
+    (process.env.IDENTITY_REGISTRY_ADDRESS ??
+      BASE_MAINNET_IDENTITY_REGISTRY) as `0x${string}`;
 
-  const agentUri = `https://${domain}/.well-known/agent-registration.json`;
-
-  console.log('[erc8004] attempting registration on Base mainnet');
-  console.log('[erc8004] domain:', domain);
-  console.log('[erc8004] agentURI:', agentUri);
-  console.log('[erc8004] identityRegistry:', identityRegistryAddress);
-
-  const result = await registerErc8004IdentityOnBase({
+  // createAgentIdentity will use runtime.wallets.developer/agent for signing.
+  // We keep PRIVATE_KEY / wallet config in the runtime's wallet extension env.
+  identityResult = await createAgentIdentity({
+    runtime: agent,
+    domain,
+    autoRegister: true,
     rpcUrl,
-    privateKey,
-    agentUri,
-    identityRegistryAddress,
+    chainId,
+    // CRITICAL: explicit registryAddress so 8453 works even if SDK map is missing.
+    registryAddress: identityRegistryAddress,
+    agentURI: `https://${domain}/.well-known/agent-registration.json`,
   });
 
-  if ('skipped' in result) {
-    console.log('[erc8004] registration skipped:', result.reason);
+  if (identityResult.didRegister) {
+    console.log('[erc8004] registered. tx:', identityResult.transactionHash);
+  } else if (identityResult.record) {
+    console.log('[erc8004] found existing registration. agentId:', identityResult.record.agentId);
   } else {
-    console.log('[erc8004] registered. tx:', result.txHash);
-    console.log('[erc8004] confirmed in block:', result.blockNumber);
+    console.log('[erc8004] identity configured without on-chain registration');
   }
+
+  const trustConfig = getTrustConfig(identityResult);
+  if (trustConfig) {
+    (agent as any).trust = trustConfig;
+  }
+}
+
+// Always serve the registration file if we know the domain.
+// If identityResult exists, generateAgentRegistration will include resolved registrations.
+if (domain) {
+  const baseRegistration = {
+    name: process.env.AGENT_NAME ?? 'sec-filings-agent',
+    description: process.env.AGENT_DESCRIPTION,
+    image: process.env.AGENT_IMAGE,
+    services: [
+      {
+        id: 'a2a',
+        type: 'a2a',
+        serviceEndpoint: `https://${domain}/.well-known/agent-card.json`,
+      },
+    ],
+  };
+
+  const registration = identityResult
+    ? generateAgentRegistration(identityResult as any, baseRegistration as any)
+    : {
+        type: 'agent',
+        domain,
+        ...baseRegistration,
+        registrations: [
+          {
+            agentRegistry: `eip155:${BASE_MAINNET_CHAIN_ID}:${process.env.IDENTITY_REGISTRY_ADDRESS ?? BASE_MAINNET_IDENTITY_REGISTRY}`,
+          },
+        ],
+        supportedTrust: ['feedback', 'inference-validation'],
+      };
+
+  app.get('/.well-known/agent-registration.json', c => c.json(registration));
+
+  // Quick sanity endpoint for ops/debug
+  app.get('/.well-known/erc8004.json', c =>
+    c.json({
+      chainId: BASE_MAINNET_CHAIN_ID,
+      identityRegistry:
+        process.env.IDENTITY_REGISTRY_ADDRESS ?? BASE_MAINNET_IDENTITY_REGISTRY,
+      reputationRegistry:
+        process.env.REPUTATION_REGISTRY_ADDRESS ?? BASE_MAINNET_REPUTATION_REGISTRY,
+      sdkChainId: process.env.CHAIN_ID ? parseInt(process.env.CHAIN_ID, 10) : undefined,
+    })
+  );
 }
 
 const tickerToCikInput = z.object({
@@ -468,7 +511,8 @@ const summarizeHandler = async (ctx: any) => {
     f => f.accessionNumber === input.accessionNumber
   );
 
-  const primaryDocument = input.primaryDocument ?? filing?.primaryDocument ?? undefined;
+  const primaryDocument =
+    input.primaryDocument ?? filing?.primaryDocument ?? undefined;
 
   if (!primaryDocument) {
     throw new Error(

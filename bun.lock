@@ -8,6 +8,7 @@
         "@lucid-agents/core": "latest",
         "@lucid-agents/hono": "latest",
         "@lucid-agents/http": "^1.10.0",
+        "@lucid-agents/identity": "^2.4.1",
         "@lucid-agents/payments": "^2.4.1",
         "@lucid-agents/wallet": "latest",
         "viem": "^2.41.2",
@@ -135,6 +136,8 @@
     "@lucid-agents/hono": ["@lucid-agents/hono@0.9.3", "", { "dependencies": { "@lucid-agents/ap2": "^0.4.0", "@lucid-agents/core": "^2.4.1", "@lucid-agents/payments": "^2.4.1", "@lucid-agents/types": "^1.6.0", "@x402/core": "^2.2.0", "@x402/evm": "^2.2.0", "@x402/hono": "^2.2.0", "hono": "4.10.1", "zod": "^4.1.12" } }, "sha512-FJsSyrtc6bSguFZl61LsKfoubMxpdsMrLmaRXuVJwcNkg0Kc6b/wEQulUPFCPkJa3eOLeRbuupp50bTAeWDX+w=="],
 
     "@lucid-agents/http": ["@lucid-agents/http@1.10.0", "", { "dependencies": { "@lucid-agents/types": "^1.6.0", "hono": "4.10.1" }, "peerDependencies": { "zod": "^4.0.0" } }, "sha512-XG+XH7N7LCZSkKSeII98W68GPsXD0zFiVl1NtTIW1H1nbEeJCa8fYtFhrL4z074HDTlX3UTgH5VqsfwoANbIjQ=="],
+
+    "@lucid-agents/identity": ["@lucid-agents/identity@2.4.1", "", { "dependencies": { "@lucid-agents/types": "^1.6.0", "@lucid-agents/wallet": "^0.6.0", "viem": "^2.41.2" } }, "sha512-1CB2nsn0mPEdIZDcGAgmpsqSnYRt3aywOec+9r5QYyQLSAbRP6P1DGLqKtyglSHNYUO3wC/wS7JKtOAkKqwYQQ=="],
 
     "@lucid-agents/payments": ["@lucid-agents/payments@2.4.1", "", { "dependencies": { "@ax-llm/ax": "^14.0.31", "@lucid-agents/types": "^1.6.0", "@x402/core": "^2.2.0", "@x402/evm": "^2.2.0", "@x402/fetch": "^2.2.0", "pg": "^8.13.1", "viem": "^2.41.2", "zod": "^4.1.12" } }, "sha512-AGEy9DpeXaAkf29ubJwQ/XrNtSo0jbXfKScKT7cWjWYjNE72ZlW63mafmc/Lptyml6cjz8NLKn7rBbXuJ6i+PA=="],
 
