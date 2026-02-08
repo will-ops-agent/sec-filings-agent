@@ -7,12 +7,15 @@ console.log(`Starting agent server on port ${port}...`);
 // Debug wrapper to log requests
 const debugFetch = async (request: Request): Promise<Response> => {
   const url = new URL(request.url);
-  const paymentHeader = request.headers.get('PAYMENT-SIGNATURE') || request.headers.get('X-PAYMENT') || request.headers.get('PAYMENT');
   
   console.log(`[REQ] ${request.method} ${url.pathname}`);
-  if (paymentHeader) {
-    console.log(`[REQ] Payment header present (${paymentHeader.length} chars)`);
-  }
+  
+  // Log ALL headers
+  const allHeaders: string[] = [];
+  request.headers.forEach((value, key) => {
+    allHeaders.push(`${key}: ${value.slice(0, 50)}${value.length > 50 ? '...' : ''}`);
+  });
+  console.log(`[REQ] Headers: ${allHeaders.join(', ')}`);
   
   const response = await app.fetch(request);
   
