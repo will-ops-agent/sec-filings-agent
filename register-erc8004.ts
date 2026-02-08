@@ -1,24 +1,27 @@
 /**
- * ERC-8004 Identity Registration (env-only)
+ * ERC-8004 Identity Registration (Base mainnet)
  *
  * Usage:
  *   bun run register
  *
  * Env:
- *   PRIVATE_KEY=0x...
+ *   IDENTITY_PRIVATE_KEY=0x...
  *   AGENT_DOMAIN=example.com
- *   RPC_URL=https://...
- *   CHAIN_ID=1 (Ethereum mainnet) | 8453 (Base mainnet) | 84532 (Base Sepolia)
- *   IDENTITY_REGISTRY_ADDRESS=0x... (optional override)
+ *   IDENTITY_RPC_URL=https://...
+ *
+ * Optional overrides:
+ *   CHAIN_ID=8453
+ *   IDENTITY_REGISTRY_ADDRESS=0x...
  */
 
-import { createPublicClient, createWalletClient, http, parseAbi } from 'viem';
+import { createPublicClient, createWalletClient, http, type Hex } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { mainnet, base, baseSepolia } from 'viem/chains';
+import { base } from 'viem/chains';
 
-const DEFAULT_IDENTITY_REGISTRY = '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432';
+import identityRegistryAbi from './src/abi/IdentityRegistry.json';
 
-const abi = parseAbi(['function register(string _uri) external returns (uint256)']);
+const DEFAULT_IDENTITY_REGISTRY =
+  '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432' as const;
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -26,40 +29,46 @@ function requireEnv(name: string): string {
   return v;
 }
 
-function resolveChain(chainId: number) {
-  if (chainId === 1) return mainnet;
-  if (chainId === 8453) return base;
-  if (chainId === 84532) return baseSepolia;
-  throw new Error(`Unsupported CHAIN_ID: ${chainId}`);
-}
-
 async function main() {
   const domain = requireEnv('AGENT_DOMAIN');
-  const privateKey = requireEnv('PRIVATE_KEY') as `0x${string}`;
+  const privateKey = (process.env.IDENTITY_PRIVATE_KEY ??
+    process.env.PRIVATE_KEY ??
+    requireEnv('IDENTITY_PRIVATE_KEY')) as Hex;
 
-  const chainId = parseInt(process.env.CHAIN_ID || '1', 10);
-  const rpcUrl = requireEnv('RPC_URL');
+  const chainId = parseInt(process.env.CHAIN_ID || '8453', 10);
+  if (chainId !== 8453) {
+    throw new Error(
+      `This script is intended for Base mainnet (8453). Got CHAIN_ID=${chainId}`
+    );
+  }
 
-  const chain = resolveChain(chainId);
+  const rpcUrl =
+    process.env.IDENTITY_RPC_URL ??
+    process.env.BASE_RPC_URL ??
+    process.env.RPC_URL ??
+    requireEnv('IDENTITY_RPC_URL');
 
   const account = privateKeyToAccount(privateKey);
-  const walletClient = createWalletClient({ account, chain, transport: http(rpcUrl) });
-  const publicClient = createPublicClient({ chain, transport: http(rpcUrl) });
+  const walletClient = createWalletClient({
+    account,
+    chain: base,
+    transport: http(rpcUrl),
+  });
+  const publicClient = createPublicClient({ chain: base, transport: http(rpcUrl) });
 
-  const agentURI = `https://${domain}/.well-known/agent-metadata.json`;
+  const agentURI = `https://${domain}/.well-known/agent-registration.json`;
 
-  console.log('Registering ERC-8004 identity');
-  console.log('Chain:', chain.name, `(chainId=${chain.id})`);
+  console.log('Registering ERC-8004 identity (Base mainnet)');
+  console.log('Chain:', base.name, `(chainId=${base.id})`);
   console.log('From:', account.address);
   console.log('URI:', agentURI);
 
-  // Registry address can be overridden to support chains not yet hardcoded in libs.
-  // Example (Base mainnet): IDENTITY_REGISTRY_ADDRESS=0x...
-  const registry = (process.env.IDENTITY_REGISTRY_ADDRESS ?? DEFAULT_IDENTITY_REGISTRY) as `0x${string}`;
+  const registry = (process.env.IDENTITY_REGISTRY_ADDRESS ??
+    DEFAULT_IDENTITY_REGISTRY) as `0x${string}`;
 
   const hash = await walletClient.writeContract({
     address: registry,
-    abi,
+    abi: identityRegistryAbi as any,
     functionName: 'register',
     args: [agentURI],
   });

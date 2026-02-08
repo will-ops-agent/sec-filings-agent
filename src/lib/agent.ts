@@ -7,13 +7,11 @@ import { createAxLLMClient } from '@lucid-agents/core/axllm';
 import { http } from '@lucid-agents/http';
 import { payments, paymentsFromEnv } from '@lucid-agents/payments';
 import { wallets, walletsFromEnv } from '@lucid-agents/wallet';
+
 import {
-  identity,
-  identityFromEnv,
-  createAgentIdentity,
-  getTrustConfig,
-  generateAgentMetadata,
-} from '@lucid-agents/identity';
+  buildAgentRegistration,
+  registerErc8004IdentityOnBase,
+} from './erc8004';
 
 import {
   cikFromTicker,
@@ -23,6 +21,18 @@ import {
   type FilingItem,
 } from './sec';
 
+const BASE_MAINNET_CHAIN_ID = 8453;
+const BASE_MAINNET_IDENTITY_REGISTRY =
+  '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432' as const;
+const BASE_MAINNET_REPUTATION_REGISTRY =
+  '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63' as const;
+
+function requireEnv(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Error(`Missing env var: ${name}`);
+  return v;
+}
+
 const builder = createAgent({
   name: process.env.AGENT_NAME ?? 'sec-filings-agent',
   version: process.env.AGENT_VERSION ?? '0.1.0',
@@ -31,15 +41,7 @@ const builder = createAgent({
     'Fetch SEC EDGAR filings and generate LLM summaries, paywalled via x402.',
 })
   .use(http())
-  .use(wallets({ config: walletsFromEnv() }))
-  .use(
-    identity({
-      config: {
-        ...identityFromEnv(),
-        autoRegister: process.env.REGISTER_IDENTITY === 'true',
-      },
-    })
-  );
+  .use(wallets({ config: walletsFromEnv() }));
 
 // Payments are required for paid endpoints.
 // We allow boot without payments for local scaffolding (endpoints will still run, but not paywalled).
@@ -55,32 +57,76 @@ const agent = await builder.build();
 
 const { app, addEntrypoint } = await createAgentApp(agent);
 
-// ERC-8004 identity bootstrap (optional)
-if (process.env.REGISTER_IDENTITY === 'true') {
-  const identityResult = await createAgentIdentity({
-    runtime: agent,
-    domain: process.env.AGENT_DOMAIN,
-    autoRegister: true,
-    rpcUrl: process.env.RPC_URL,
-    chainId: process.env.CHAIN_ID ? parseInt(process.env.CHAIN_ID) : undefined,
+// ─────────────────────────────────────────────────────────────────────────────
+// ERC-8004 Identity (Base mainnet)
+//
+// NOTE: We do NOT rely on @lucid-agents/identity here because Base mainnet
+// support isn't reliable in the SDK yet. We register directly with viem.
+//
+// Required hosting: /.well-known/agent-registration.json
+// ─────────────────────────────────────────────────────────────────────────────
+const domain = process.env.AGENT_DOMAIN;
+
+if (domain) {
+  const registration = buildAgentRegistration({
+    domain,
+    name: process.env.AGENT_NAME ?? 'sec-filings-agent',
+    description: process.env.AGENT_DESCRIPTION,
+    image: process.env.AGENT_IMAGE,
+    chainId: BASE_MAINNET_CHAIN_ID,
+    identityRegistryAddress:
+      process.env.IDENTITY_REGISTRY_ADDRESS ?? BASE_MAINNET_IDENTITY_REGISTRY,
   });
 
-  if (identityResult.didRegister) {
-    const metadata = generateAgentMetadata(identityResult, {
-      name: process.env.AGENT_NAME,
-      description: process.env.AGENT_DESCRIPTION,
-    });
+  app.get('/.well-known/agent-registration.json', c => c.json(registration));
 
-    console.log('Registered agent on-chain:', identityResult.transactionHash);
-    console.log(
-      `Host metadata at: https://${identityResult.domain}/.well-known/agent-metadata.json`
-    );
-    console.log(JSON.stringify(metadata, null, 2));
-  }
+  // Optional: expose registries for debugging
+  app.get('/.well-known/erc8004.json', c =>
+    c.json({
+      chainId: BASE_MAINNET_CHAIN_ID,
+      identityRegistry:
+        process.env.IDENTITY_REGISTRY_ADDRESS ?? BASE_MAINNET_IDENTITY_REGISTRY,
+      reputationRegistry:
+        process.env.REPUTATION_REGISTRY_ADDRESS ?? BASE_MAINNET_REPUTATION_REGISTRY,
+    })
+  );
+}
 
-  const trustConfig = getTrustConfig(identityResult);
-  if (trustConfig) {
-    (agent as any).trust = trustConfig;
+if (process.env.REGISTER_IDENTITY === 'true') {
+  if (!domain) throw new Error('REGISTER_IDENTITY=true requires AGENT_DOMAIN');
+
+  const rpcUrl =
+    process.env.IDENTITY_RPC_URL ??
+    process.env.BASE_RPC_URL ??
+    process.env.RPC_URL ??
+    requireEnv('RPC_URL');
+
+  const privateKey = (process.env.IDENTITY_PRIVATE_KEY ??
+    process.env.PRIVATE_KEY ??
+    requireEnv('IDENTITY_PRIVATE_KEY')) as `0x${string}`;
+
+  const identityRegistryAddress = (process.env.IDENTITY_REGISTRY_ADDRESS ??
+    BASE_MAINNET_IDENTITY_REGISTRY) as `0x${string}`;
+
+  const agentUri = `https://${domain}/.well-known/agent-registration.json`;
+
+  console.log('[erc8004] attempting registration on Base mainnet');
+  console.log('[erc8004] domain:', domain);
+  console.log('[erc8004] agentURI:', agentUri);
+  console.log('[erc8004] identityRegistry:', identityRegistryAddress);
+
+  const result = await registerErc8004IdentityOnBase({
+    rpcUrl,
+    privateKey,
+    agentUri,
+    identityRegistryAddress,
+  });
+
+  if ('skipped' in result) {
+    console.log('[erc8004] registration skipped:', result.reason);
+  } else {
+    console.log('[erc8004] registered. tx:', result.txHash);
+    console.log('[erc8004] confirmed in block:', result.blockNumber);
   }
 }
 
@@ -268,8 +314,7 @@ const insiderTradesInput = z
 
 addEntrypoint({
   key: 'filings.insider-trades',
-  description:
-    'Recent insider filing links (Forms 3/4/5) from SEC submissions.',
+  description: 'Recent insider filing links (Forms 3/4/5) from SEC submissions.',
   input: insiderTradesInput,
   price: '0.01',
   handler: async ctx => {
@@ -385,7 +430,9 @@ addEntrypoint({
       }
 
       // Poll interval
-      await new Promise(resolve => setTimeout(resolve, input.pollIntervalSec * 1000));
+      await new Promise(resolve =>
+        setTimeout(resolve, input.pollIntervalSec * 1000)
+      );
     }
 
     return {
