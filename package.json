@@ -24,5 +24,9 @@
   "devDependencies": {
     "bun-types": "^1.3.0",
     "typescript": "^5.9.2"
+  },
+  "overrides": {
+    "x402": "npm:@x402/core@^2.3.0",
+    "x402-fetch": "npm:@x402/fetch@^2.3.0"
   }
 }
