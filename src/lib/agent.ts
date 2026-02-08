@@ -177,6 +177,27 @@ const tickerToCikInput = z.object({
   ticker: z.string().min(1),
 });
 
+// FREE ENDPOINT: Direct route bypasses payments middleware
+// The entrypoint version still exists for discovery/agent-card, but this route handles actual calls
+app.post('/free/ticker-to-cik', async c => {
+  try {
+    const body = await c.req.json();
+    const parsed = tickerToCikInput.safeParse(body);
+    if (!parsed.success) {
+      return c.json({ error: 'Invalid input', details: parsed.error.errors }, 400);
+    }
+    const cik = await cikFromTicker(parsed.data.ticker);
+    return c.json({
+      output: {
+        ticker: parsed.data.ticker.toUpperCase(),
+        cik,
+      },
+    });
+  } catch (e) {
+    return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
+  }
+});
+
 addEntrypoint({
   key: 'mappings.ticker-to-cik',
   description: 'Resolve a stock ticker (e.g., TSLA) to an SEC CIK.',
