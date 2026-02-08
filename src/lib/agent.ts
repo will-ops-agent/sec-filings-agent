@@ -181,7 +181,7 @@ addEntrypoint({
   key: 'mappings.ticker-to-cik',
   description: 'Resolve a stock ticker (e.g., TSLA) to an SEC CIK.',
   input: tickerToCikInput,
-  price: '0',
+  // No price = free endpoint (price: '0' still triggers 402 flow)
   handler: async ctx => {
     const input = ctx.input as z.infer<typeof tickerToCikInput>;
     const cik = await cikFromTicker(input.ticker);
